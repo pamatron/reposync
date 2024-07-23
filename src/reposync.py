@@ -26,12 +26,22 @@ class Commit:
         except AttributeError:
             return False
 
+    def __ne__(self, value: object) -> bool:
+        return self != value
+
     def __hash__(self) -> int:
-        return hash((self.commit_hash, self.author_date))
+        return hash((self.message, self.author_date))
+
+    def __lt__(self, value) -> bool:
+        try:
+            return self.author_date < value.author_date
+        except AttributeError:
+            return False
 
 
 class Repository:
     path: str
+    commits: list[Commit]
 
     def __init__(self, path: str) -> None:
         self.path = os.path.realpath(os.path.expanduser(path))
@@ -45,7 +55,11 @@ class Repository:
     def get_diff(self, last_common_commit: str):
         cmd = f"git format-patch {last_common_commit}..HEAD --stdout > commits.patch"
 
-    def list_commits(self) -> list[Commit]:
+    def get_commits(self) -> list[Commit]:
+        try:
+            return self.commits
+        except AttributeError:
+            pass
         ret: list[Commit] = []
         log_lines = subprocess.check_output(
             [
@@ -54,19 +68,25 @@ class Repository:
                 "--full-history",
                 "--pretty=format:%H %aI %cI %s",
                 "--date-order",
-                "--max-count=100",
+                "--max-count=1000",
             ],
             text=True,
             cwd=self.path,
         ).splitlines()
         for line in log_lines:
             ret.append(Commit(line))
-            # print(ret[-1])
+        self.commits = ret
         return ret
+
+    def get_last_common_commit(self, other) -> Commit:
+        commit_set = set(self.get_commits())
+        commits = sorted(commit_set.intersection(other.get_commits()))
+        if not commits:
+            raise ValueError("there is no common commit")
+        return commits[-1]
 
 
 def main() -> None:
-    print(sys.argv)
     if len(sys.argv) == 3:
         repos = [
             Repository(sys.argv[1]),
@@ -75,8 +95,11 @@ def main() -> None:
     else:
         return
 
-    for repo in repos:
-        repo.list_commits()
+    common_commit = [
+        repos[0].get_last_common_commit(repos[1]),
+        repos[1].get_last_common_commit(repos[0]),
+    ]
+    print(common_commit)
 
 
 if __name__ == "__main__":
